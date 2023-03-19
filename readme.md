@@ -1,3 +1,5 @@
+# CRA React 项目使用 Federation 实践
+
 ### 前言
 
 federation 是 webpack5 支持的一种跨项目资源共享的方式。
@@ -45,16 +47,29 @@ Remote 项目的打包产物，相比较非 Federation 架构，多出来了以�
 
 1. _moduleEntry.js_ 给 Host 项目的入口文件
 2. _src_Button_tsx.js_ 暴露给其他项目使用的 Button 组件
-3. 其他暴露的组件的 bundle
+3. 其他 remote 组件的 bundle
 
 **moduleEntry.js**
 可以把 moduleEntry.js 把 Remote 项目暴露的组件信息都包含在内了，它定义了一个这样的 module
 
-```json
-{
+```javascript
+var Remote = {
     get:function(moduleId){...},
     init:() => {...}
 }
+```
+
+`init` 方法用来初始化 Host 项目和 Remote 项目的共享作用域。共享作用域就是 shared 模块的共享；
+`get` 方法用来获取对应的组件
+
+**src_button_tsx.js**
+和普通的 button 组件打包后的结果区别不大，只有对 shared 模块的引用部分的代码发生了变化;例如 我在 shared 中配置了 react 和 react-dom;
+
+```javascript
+// 普通的button组件
+__webpack__require__("react");
+// exposes 的 button 组件, 对于共享模块的加载变成了异步加载
+__webpack__require__.e("react");
 ```
 
 ##### Host 项目打包产物
@@ -66,28 +81,52 @@ Remote 项目的打包产物，相比较非 Federation 架构，多出来了以�
 /* 配置federation后，__webpack__require__.j上多出来了 remotes 和 consumes 方法*/
 __webpack__require__.f.remotes = function () {
   // remotes 方法中用来处理 加载 moduleEntry 文件，加载 shared 模块，加载 Button 文件
+  /**
+   * 1. 加载 moduleEntry 文件
+   * 2. 执行 init 方法，设置共享作用域
+   * 3. 执行 get 方法获取到模块信息
+   * 4. 注册模块信息
+   * 5. __webpack__require__(module)
+   * /
 };
 ```
 
-#### 踩坑
+### 踩坑
 
-1. CRA 项目 - 异步加载的模块热更新失败
-   这是 dev-server 的一个 bug，它误判了运行环境，认为是运行在非浏览器端所以跳过了 hmr 的执行，按照下图重新配置 webpack 的 target 即可。
-   详情见这里：https://github.com/pmmmwh/react-refresh-webpack-plugin/blob/main/docs/TROUBLESHOOTING.md
+##### 1. CRA 项目 - 异步加载的模块热更新失败
 
-2. CRA 项目 - 添加 exposes 配置后热更新失败：
-   这是因为配置了 exposes 后，项目会生成两个入口文件，一个是项目的主入口 main，另外一个就是暴露给其他项目引用的 moduleEntry 入口文件，这两个入口文件同时被注入到 index.html 文件中；就会加载两份 webpack runtime 的代码，定义了两个 热更新的函数，所以在热更新的时候会错乱，具体原因可以看这里：https://github.com/module-federation/module-federation-examples/issues/358；
+这是 dev-server 的一个 bug，它误判了运行环境，认为是运行在非浏览器端所以跳过了 hmr 的执行，按照下图重新配置 webpack 的 target 即可。
+详情见这里：https://github.com/pmmmwh/react-refresh-webpack-plugin/blob/main/docs/TROUBLESHOOTING.md
 
-3. remote 模块无法在 host 项目热更新
-   主要表现为，remote 模块更改后，host 项目出发了整个热更新的流程，网络面板中有 hot-update 文件请求，但是 UI 无变化，表现和问题 1 一样。
-   这是因为此时运行了两个 react-refresh 的实例，一个是 host 项目自身的，一个是 remoteEntry 的；host 项目做如下配置：
+##### 2. CRA 项目 - 添加 exposes 配置后热更新失败：
 
-4. 怎么支持远程 ts
-   @cloudbeds/webpack-module-federation-types-plugin
+这是因为配置了 exposes 后，项目会生成两个入口文件，一个是项目的主入口 main，另外一个就是暴露给其他项目引用的 moduleEntry 入口文件，这两个入口文件同时被注入到 index.html 文件中；就会加载两份 webpack runtime 的代码，定义了两个 热更新的函数，所以在热更新的时候会错乱，具体原因可以看这里：https://github.com/module-federation/module-federation-examples/issues/358；
 
-5. 入口资源加载失败的情况，怎么兜底
-   目前只能用 ErrorBoundaries 去兜底。尝试了 window.addEventListener 去监听 error 和 unhandlerejection 这两个事件，但是仍然没拦截住，具体表现为控制台仍有报错，页面也崩溃了。可能是因为单纯的事件监听可以监听到错误事件的触发，但是没有办法对 UI 加以控制；
+##### 3. remote 模块无法在 host 项目热更新
 
-#### 方案优劣
+主要表现为，remote 模块更改后，host 项目出发了整个热更新的流程，网络面板中有 hot-update 文件请求，但是 UI 无变化，表现和问题 1 一样。
+这是因为此时运行了两个 react-refresh 的实例，一个是 host 项目自身的，一个是 remoteEntry 的；host 项目做如下配置：
 
-先说劣势，依赖的第三方包无法按需加载，比如 antd
+##### 4. boostrap.js 方案
+
+##### 7. 怎么支持远程 ts
+
+@cloudbeds/webpack-module-federation-types-plugin
+
+##### 8. 入口资源加载失败的情况，怎么兜底
+
+目前只能用 ErrorBoundaries 去兜底。尝试了 window.addEventListener 去监听 error 和 unhandlerejection 这两个事件，但是仍然没拦截住，具体表现为控制台仍有报错，页面也崩溃了。可能是因为单纯的事件监听可以监听到错误事件的触发，但是没有办法对 UI 加以控制；
+
+> 因为有一些项目是 umi 创建的项目，所以我也记录一下 umi3x 项目的坑
+
+##### 5. Umi 3x 项目的 sourceMap 配置会影响 federation 模式下的构建，
+
+没有细究原理，改为 eval 模式是可行的，但是是否影响调试还待验证；
+
+##### 6. Umi 3x 项目的不支持入口异步加载，
+
+所以 react 的依赖要配置为 eager；但是正常的生产环境不能配置 eager，否则 shared 无意义；这一点怎么处理 开发环境 和 生产环境
+
+### 遗留问题
+
+依赖的第三方包无法按需加载，比如 antd
