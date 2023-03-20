@@ -32,7 +32,7 @@ const replaceHtmlWebpackPlugin = () => (config) => {
   if (htmlWebpackPluginIndex !== -1) {
     const newHtmlWebpackPlugin = new HtmlWebpackPlugin({
       inject: true,
-      template: "/Users/yingying.chang/federation_main/public/index.html",
+      template: "./public/index.html",
       version: 5,
       chunks: ["main"],
     });
